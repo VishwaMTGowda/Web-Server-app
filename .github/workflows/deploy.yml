@@ -105,29 +105,31 @@ jobs:
         ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no ubuntu@${{ secrets.EC2_HOST }} << 'EOF'
           set -e
           
-          echo "Installing Nginx if not installed..."
+          echo "=== Installing Nginx if not installed ==="
           if ! command -v nginx &> /dev/null; then
             sudo apt update
             sudo apt install nginx -y
           fi
           
-          echo "Creating web directory..."
+          echo "=== Creating web directory ==="
           sudo mkdir -p /var/www/static-html
           sudo chown -R ubuntu:www-data /var/www/static-html
           sudo chmod -R 755 /var/www/static-html
           
-          echo "Configuring Nginx..."
+          echo "=== Configuring Nginx ==="
           cat << 'NGINX_CONFIG' | sudo tee /etc/nginx/sites-available/static-site
           server {
               listen 80;
+              listen [::]:80;
               server_name _;
+              
               root /var/www/static-html;
               index index.html;
               
               location / {
                   try_files \$uri \$uri/ =404;
-                  add_header X-Deployed-By "GitHub Actions";
-                  add_header X-Commit-Hash "$(git -C /var/www/static-html rev-parse --short HEAD 2>/dev/null || echo 'unknown')";
+                  add_header X-Deployed-By "GitHub Actions" always;
+                  add_header X-Commit-Hash "$(cat /var/www/static-html/deployment-info.json 2>/dev/null | grep -o '"commit_hash":"[^"]*"' | cut -d'"' -f4 || echo 'unknown')" always;
               }
               
               location /deployment {
@@ -136,7 +138,7 @@ jobs:
               
               location /info {
                   alias /var/www/static-html/deployment-info.json;
-                  add_header Content-Type application/json;
+                  add_header Content-Type application/json always;
               }
               
               # Security headers
@@ -146,37 +148,66 @@ jobs:
           }
           NGINX_CONFIG
           
-          # Enable site
-          sudo ln -sf /etc/nginx/sites-available/static-site /etc/nginx/sites-enabled/
+          # Remove default site if exists
           sudo rm -f /etc/nginx/sites-enabled/default
           
-          echo "Testing Nginx configuration..."
+          # Enable site
+          sudo ln -sf /etc/nginx/sites-available/static-site /etc/nginx/sites-enabled/
+          
+          echo "=== Testing Nginx configuration ==="
           sudo nginx -t
           
-          echo "Restarting Nginx..."
+          echo "=== Restarting Nginx ==="
           sudo systemctl restart nginx
           
-          echo "Nginx status:"
+          echo "=== Nginx status ==="
           sudo systemctl status nginx --no-pager
+          
+          echo "=== Files in web directory ==="
+          ls -la /var/www/static-html/
         EOF
     
     - name: Verify deployment
       run: |
         echo "Waiting for Nginx to restart..."
-        sleep 3
+        sleep 5
         
-        echo "Testing website..."
-        HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://${{ secrets.EC2_HOST }}/ || echo "Failed")
+        echo "=== Testing website ==="
         
-        if [ "$HTTP_STATUS" = "200" ]; then
-          echo "✅ Website deployed successfully! HTTP Status: $HTTP_STATUS"
-          echo "🌐 Access your site at: http://${{ secrets.EC2_HOST }}"
-          echo "📊 Deployment info: http://${{ secrets.EC2_HOST }}/deployment"
-          echo "🔧 JSON info: http://${{ secrets.EC2_HOST }}/info"
+        # Try multiple attempts
+        for i in {1..5}; do
+          HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}\n" -m 10 http://${{ secrets.EC2_HOST }}/ 2>/dev/null || echo "000")
           
-          # Show page title
-          curl -s http://${{ secrets.EC2_HOST }} | grep -o "<title>[^<]*</title>" || true
-        else
-          echo "⚠️  Deployment check failed. Status: $HTTP_STATUS"
-          echo "Check Nginx logs on EC2: sudo journalctl -u nginx"
-        fi
+          if [ "$HTTP_STATUS" = "200" ]; then
+            echo "✅ Website deployed successfully! HTTP Status: $HTTP_STATUS"
+            echo "🌐 Access your site at: http://${{ secrets.EC2_HOST }}"
+            echo "📊 Deployment info: http://${{ secrets.EC2_HOST }}/deployment"
+            echo "🔧 JSON info: http://${{ secrets.EC2_HOST }}/info"
+            
+            # Show page title
+            echo -n "📄 Page title: "
+            curl -s -m 10 http://${{ secrets.EC2_HOST }}/ | grep -o "<title>[^<]*</title>" | sed 's/<title>//;s/<\/title>//' || echo "Not found"
+            
+            # Test additional endpoints
+            echo "Testing additional endpoints:"
+            for endpoint in "/deployment" "/info"; do
+              STATUS=$(curl -s -o /dev/null -w "%{http_code}\n" -m 5 http://${{ secrets.EC2_HOST }}$endpoint 2>/dev/null || echo "000")
+              echo "  $endpoint: HTTP $STATUS"
+            done
+            
+            break
+          else
+            echo "Attempt $i: HTTP Status $HTTP_STATUS (waiting...)"
+            if [ $i -lt 5 ]; then
+              sleep 3
+            else
+              echo "❌ Deployment check failed after 5 attempts"
+              echo "Last HTTP Status: $HTTP_STATUS"
+              echo "Check Nginx on EC2:"
+              echo "1. SSH into EC2: ssh -i your-key.pem ubuntu@${{ secrets.EC2_HOST }}"
+              echo "2. Check Nginx: sudo systemctl status nginx"
+              echo "3. Check logs: sudo tail -f /var/log/nginx/error.log"
+              exit 1
+            fi
+          fi
+        done
