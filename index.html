@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DevOps CI/CD Static Website</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: 'Arial', sans-serif;
+        }
+        
+        body {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            color: white;
+            padding: 20px;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 40px 20px;
+        }
+        
+        header {
+            text-align: center;
+            margin-bottom: 50px;
+            padding: 30px;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 20px;
+            backdrop-filter: blur(10px);
+        }
+        
+        h1 {
+            font-size: 3rem;
+            margin-bottom: 15px;
+            color: white;
+        }
+        
+        .subtitle {
+            font-size: 1.3rem;
+            opacity: 0.9;
+            margin-bottom: 20px;
+        }
+        
+        .deployment-info {
+            background: rgba(255, 255, 255, 0.15);
+            padding: 20px;
+            border-radius: 10px;
+            margin-top: 20px;
+        }
+        
+        .content {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 30px;
+            margin-bottom: 50px;
+        }
+        
+        .card {
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 15px;
+            padding: 30px;
+            backdrop-filter: blur(10px);
+            transition: transform 0.3s ease;
+        }
+        
+        .card:hover {
+            transform: translateY(-5px);
+        }
+        
+        .card h3 {
+            font-size: 1.8rem;
+            margin-bottom: 15px;
+            color: #fff;
+        }
+        
+        .card p {
+            line-height: 1.6;
+            opacity: 0.9;
+        }
+        
+        .icon {
+            font-size: 2.5rem;
+            margin-bottom: 20px;
+            color: #4f46e5;
+        }
+        
+        .status-badge {
+            display: inline-block;
+            padding: 8px 20px;
+            background: #10b981;
+            border-radius: 20px;
+            font-weight: bold;
+            margin-bottom: 20px;
+        }
+        
+        .info-grid {
+            display: grid;
+            gap: 15px;
+            margin-top: 20px;
+        }
+        
+        .info-item {
+            display: flex;
+            justify-content: space-between;
+            padding: 10px 0;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        
+        .info-label {
+            font-weight: bold;
+        }
+        
+        .info-value {
+            font-family: monospace;
+            background: rgba(255, 255, 255, 0.2);
+            padding: 5px 10px;
+            border-radius: 5px;
+        }
+        
+        footer {
+            text-align: center;
+            margin-top: 50px;
+            padding: 30px;
+            background: rgba(0, 0, 0, 0.2);
+            border-radius: 15px;
+        }
+        
+        .counter {
+            font-size: 2rem;
+            font-weight: bold;
+            color: #4f46e5;
+            margin: 20px 0;
+        }
+        
+        @media (max-width: 768px) {
+            h1 {
+                font-size: 2rem;
+            }
+            
+            .container {
+                padding: 20px 10px;
+            }
+            
+            .content {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <div class="status-badge">
+                <i class="fas fa-circle" style="font-size: 0.8rem; margin-right: 8px;"></i>
+                LIVE
+            </div>
+            <h1>🚀 DevOps CI/CD Demo</h1>
+            <p class="subtitle">Static Website Deployed via GitHub Actions to AWS EC2</p>
+            <div class="deployment-info">
+                <p>Auto-deployed on: <span id="deploymentTime"></span></p>
+                <p>Commit: <span id="commitHash"></span></p>
+            </div>
+        </header>
+        
+        <div class="content">
+            <div class="card">
+                <div class="icon">
+                    <i class="fab fa-github"></i>
+                </div>
+                <h3>GitHub Integration</h3>
+                <p>Protected main branch with mandatory PR reviews. No direct commits allowed.</p>
+            </div>
+            
+            <div class="card">
+                <div class="icon">
+                    <i class="fas fa-code-branch"></i>
+                </div>
+                <h3>CI/CD Pipeline</h3>
+                <p>Automatic deployment to AWS EC2 on every push to main branch. Zero downtime.</p>
+            </div>
+            
+            <div class="card">
+                <div class="icon">
+                    <i class="fab fa-aws"></i>
+                </div>
+                <h3>AWS EC2 Hosting</h3>
+                <p>Scalable cloud infrastructure with auto-scaling and load balancing capabilities.</p>
+            </div>
+        </div>
+        
+        <div class="card">
+            <h3>Deployment Information</h3>
+            <div class="info-grid">
+                <div class="info-item">
+                    <span class="info-label">Server:</span>
+                    <span class="info-value">AWS EC2 Ubuntu</span>
+                </div>
+                <div class="info-item">
+                    <span class="info-label">Web Server:</span>
+                    <span class="info-value">Nginx</span>
+                </div>
+                <div class="info-item">
+                    <span class="info-label">Region:</span>
+                    <span class="info-value">us-east-1</span>
+                </div>
+                <div class="info-item">
+                    <span class="info-label">Last Updated:</span>
+                    <span class="info-value" id="updateTime"></span>
+                </div>
+                <div class="info-item">
+                    <span class="info-label">Visitor Count:</span>
+                    <span class="info-value counter" id="visitCount">0</span>
+                </div>
+            </div>
+        </div>
+        
+        <footer>
+            <p>DevOps Engineer Assessment - Static Website Deployment</p>
+            <p>Automated CI/CD Pipeline with GitHub Actions and AWS EC2</p>
+            <p style="margin-top: 15px; opacity: 0.8;">
+                <i class="fas fa-sync-alt"></i> Auto-refreshes every 30 seconds
+            </p>
+        </footer>
+    </div>
+    
+    <script>
+        // Set deployment info
+        document.addEventListener('DOMContentLoaded', function() {
+            const now = new Date();
+            const deployTime = now.toLocaleString('en-US', {
+                year: 'numeric',
+                month: 'long',
+                day: 'numeric',
+                hour: '2-digit',
+                minute: '2-digit',
+                second: '2-digit'
+            });
+            
+            // Get commit hash from URL or generate random
+            const urlParams = new URLSearchParams(window.location.search);
+            let commitHash = urlParams.get('commit') || 'main-' + Math.random().toString(36).substr(2, 7);
+            
+            // Update page elements
+            document.getElementById('deploymentTime').textContent = deployTime;
+            document.getElementById('commitHash').textContent = commitHash;
+            document.getElementById('updateTime').textContent = deployTime;
+            
+            // Visitor counter (using localStorage)
+            let visitCount = localStorage.getItem('visitCount') || 0;
+            visitCount = parseInt(visitCount) + 1;
+            localStorage.setItem('visitCount', visitCount);
+            document.getElementById('visitCount').textContent = visitCount;
+            
+            // Auto-refresh deployment time every 30 seconds
+            setInterval(() => {
+                const currentTime = new Date().toLocaleTimeString();
+                document.getElementById('updateTime').textContent = 
+                    now.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) + ' ' + currentTime;
+            }, 30000);
+        });
+    </script>
+</body>
+</html>
