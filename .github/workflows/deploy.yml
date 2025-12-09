@@ -2,212 +2,55 @@ name: Deploy Static HTML to EC2
 
 on:
   push:
-    branches: [ main ]
+    branches: [ "main" ]
   pull_request:
-    branches: [ main ]
+    branches: [ "main" ]
 
 jobs:
+
+  # ------------------------------
+  # Step 1: Validate on Pull Request
+  # ------------------------------
   validate:
     runs-on: ubuntu-latest
     if: github.event_name == 'pull_request'
-    
     steps:
-    - uses: actions/checkout@v4
-    
-    - name: Validate HTML
-      run: |
-        if [ -f index.html ]; then
-          echo "✅ HTML file exists"
-          # Simple HTML validation
-          if grep -q "<!DOCTYPE html>" index.html; then
-            echo "✅ Valid HTML5 doctype found"
-          else
-            echo "❌ Invalid HTML - missing doctype"
+      - name: Checkout Repository
+        uses: actions/checkout@v3
+
+      - name: Validate HTML Exists
+        run: |
+          if [ ! -d "./html" ]; then
+            echo "❌ Error: HTML folder not found!"
             exit 1
           fi
-        else
-          echo "❌ No HTML file found"
-          exit 1
-        fi
-    
-    - name: Check file size
-      run: |
-        echo "HTML file size: $(wc -l < index.html) lines"
-        echo "File size: $(du -h index.html | cut -f1)"
+          echo "✔ Validation passed: HTML folder exists."
 
+  # ------------------------------
+  # Step 2: Deploy on Push to Main
+  # ------------------------------
   deploy:
     runs-on: ubuntu-latest
+    needs: validate
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    
+
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-    
-    - name: Setup SSH
-      env:
-        SSH_PRIVATE_KEY: ${{ secrets.EC2_SSH_KEY }}
-      run: |
-        mkdir -p ~/.ssh
-        echo "$SSH_PRIVATE_KEY" > ~/.ssh/id_rsa
-        chmod 600 ~/.ssh/id_rsa
-        ssh-keyscan ${{ secrets.EC2_HOST }} >> ~/.ssh/known_hosts
-    
-    - name: Create deployment info
-      run: |
-        echo "Creating deployment metadata..."
-        DEPLOY_TIME=$(date '+%Y-%m-%d %H:%M:%S UTC')
-        COMMIT_HASH=$(git rev-parse --short HEAD)
-        
-        # Create info file
-        cat > deployment-info.json << EOF
-        {
-          "deployment_time": "$DEPLOY_TIME",
-          "commit_hash": "$COMMIT_HASH",
-          "branch": "main",
-          "github_run_id": "${{ github.run_id }}",
-          "github_run_number": "${{ github.run_number }}"
-        }
-        EOF
-        
-        # Create HTML version
-        cat > deployment.html << EOF
-        <!DOCTYPE html>
-        <html>
-        <head><title>Deployment Info</title></head>
-        <body>
-          <h1>Deployment Information</h1>
-          <p><strong>Time:</strong> $DEPLOY_TIME</p>
-          <p><strong>Commit:</strong> $COMMIT_HASH</p>
-          <p><strong>GitHub Run:</strong> ${{ github.run_number }}</p>
-          <p><strong>Triggered by:</strong> ${{ github.actor }}</p>
-        </body>
-        </html>
-        EOF
-        
-        cat deployment-info.json
-    
-    - name: Deploy files to EC2
-      run: |
-        echo "Deploying static files to EC2..."
-        
-        # Sync all files to EC2
-        rsync -avz --delete \
-          --exclude='.git' \
-          --exclude='.github' \
-          --exclude='.gitignore' \
-          --exclude='node_modules' \
-          --exclude='*.log' \
-          -e "ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no" \
-          ./ ubuntu@${{ secrets.EC2_HOST }}:/var/www/static-html/
-    
-    - name: Setup Nginx on EC2
-      run: |
-        ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no ubuntu@${{ secrets.EC2_HOST }} << 'EOF'
-          set -e
-          
-          echo "=== Installing Nginx if not installed ==="
-          if ! command -v nginx &> /dev/null; then
-            sudo apt update
-            sudo apt install nginx -y
-          fi
-          
-          echo "=== Creating web directory ==="
-          sudo mkdir -p /var/www/static-html
-          sudo chown -R ubuntu:www-data /var/www/static-html
-          sudo chmod -R 755 /var/www/static-html
-          
-          echo "=== Configuring Nginx ==="
-          cat << 'NGINX_CONFIG' | sudo tee /etc/nginx/sites-available/static-site
-          server {
-              listen 80;
-              listen [::]:80;
-              server_name _;
-              
-              root /var/www/static-html;
-              index index.html;
-              
-              location / {
-                  try_files \$uri \$uri/ =404;
-                  add_header X-Deployed-By "GitHub Actions" always;
-                  add_header X-Commit-Hash "$(cat /var/www/static-html/deployment-info.json 2>/dev/null | grep -o '"commit_hash":"[^"]*"' | cut -d'"' -f4 || echo 'unknown')" always;
-              }
-              
-              location /deployment {
-                  alias /var/www/static-html/deployment.html;
-              }
-              
-              location /info {
-                  alias /var/www/static-html/deployment-info.json;
-                  add_header Content-Type application/json always;
-              }
-              
-              # Security headers
-              add_header X-Frame-Options "SAMEORIGIN" always;
-              add_header X-Content-Type-Options "nosniff" always;
-              add_header Referrer-Policy "strict-origin-when-cross-origin" always;
-          }
-          NGINX_CONFIG
-          
-          # Remove default site if exists
-          sudo rm -f /etc/nginx/sites-enabled/default
-          
-          # Enable site
-          sudo ln -sf /etc/nginx/sites-available/static-site /etc/nginx/sites-enabled/
-          
-          echo "=== Testing Nginx configuration ==="
-          sudo nginx -t
-          
-          echo "=== Restarting Nginx ==="
-          sudo systemctl restart nginx
-          
-          echo "=== Nginx status ==="
-          sudo systemctl status nginx --no-pager
-          
-          echo "=== Files in web directory ==="
-          ls -la /var/www/static-html/
-        EOF
-    
-    - name: Verify deployment
-      run: |
-        echo "Waiting for Nginx to restart..."
-        sleep 5
-        
-        echo "=== Testing website ==="
-        
-        # Try multiple attempts
-        for i in {1..5}; do
-          HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}\n" -m 10 http://${{ secrets.EC2_HOST }}/ 2>/dev/null || echo "000")
-          
-          if [ "$HTTP_STATUS" = "200" ]; then
-            echo "✅ Website deployed successfully! HTTP Status: $HTTP_STATUS"
-            echo "🌐 Access your site at: http://${{ secrets.EC2_HOST }}"
-            echo "📊 Deployment info: http://${{ secrets.EC2_HOST }}/deployment"
-            echo "🔧 JSON info: http://${{ secrets.EC2_HOST }}/info"
-            
-            # Show page title
-            echo -n "📄 Page title: "
-            curl -s -m 10 http://${{ secrets.EC2_HOST }}/ | grep -o "<title>[^<]*</title>" | sed 's/<title>//;s/<\/title>//' || echo "Not found"
-            
-            # Test additional endpoints
-            echo "Testing additional endpoints:"
-            for endpoint in "/deployment" "/info"; do
-              STATUS=$(curl -s -o /dev/null -w "%{http_code}\n" -m 5 http://${{ secrets.EC2_HOST }}$endpoint 2>/dev/null || echo "000")
-              echo "  $endpoint: HTTP $STATUS"
-            done
-            
-            break
-          else
-            echo "Attempt $i: HTTP Status $HTTP_STATUS (waiting...)"
-            if [ $i -lt 5 ]; then
-              sleep 3
-            else
-              echo "❌ Deployment check failed after 5 attempts"
-              echo "Last HTTP Status: $HTTP_STATUS"
-              echo "Check Nginx on EC2:"
-              echo "1. SSH into EC2: ssh -i your-key.pem ubuntu@${{ secrets.EC2_HOST }}"
-              echo "2. Check Nginx: sudo systemctl status nginx"
-              echo "3. Check logs: sudo tail -f /var/log/nginx/error.log"
-              exit 1
-            fi
-          fi
-        done
+      - name: Checkout Repository
+        uses: actions/checkout@v3
+
+      - name: Install Rsync
+        run: sudo apt-get update && sudo apt-get install -y rsync
+
+      - name: Deploy to EC2 using Rsync
+        run: |
+          echo "${{ secrets.EC2_SSH_KEY }}" > private_key.pem
+          chmod 600 private_key.pem
+
+          rsync -avz -e "ssh -i private_key.pem -o StrictHostKeyChecking=no" \
+            ./html/ ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}:/var/www/html/
+
+      - name: Restart Apache on EC2
+        run: |
+          ssh -i private_key.pem -o StrictHostKeyChecking=no \
+            ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} \
+            "sudo systemctl restart httpd || sudo systemctl restart apache2"
